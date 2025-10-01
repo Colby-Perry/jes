@@ -22,7 +22,8 @@ class Creature:
         self.sim = _sim
         self.ui = _ui
         self.codon_with_change = None
-    
+        self.has_been_simulated = False
+
     def get_species(self, parent_species):
         if parent_species == -1:
             return self.id_number

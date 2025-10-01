@@ -55,11 +55,55 @@ def draw_line_graph(data, graph, margins, u, font) -> None:
             pygame.draw.line(graph, color, (x1, y1), (x2, y2), width=thickness)
             
 def draw_sac(data, sac, margins, ui) -> None:
-    sac.fill((0,0,0))
-    for g in range(len(data)):
-        scan_down_trapezoids(data, g, sac, margins, ui)
-        
-def scan_down_trapezoids(data, g, sac, margins, ui) -> None:
+    sac.fill((0, 0, 0))
+    h = sac.get_height()
+    len_data = len(data)
+    left = margins[0]
+    w = sac.get_width() - margins[0] - margins[1]
+
+    for g in range(len_data):
+        x1 = left + (g / len_data) * w
+        x2 = left + ((g + 1) / len_data) * w
+
+        # Only species present in this generation
+        alive_species = data[g].keys()
+
+        if g == 0:
+            # First generation: draw from middle
+            for sp in alive_species:
+                pop = data[g][sp]
+                points = [
+                    [x1, h/2],
+                    [x1, h/2],
+                    [x2, h - pop[1]*h/pop[2] if pop[2] != 0 else h],
+                    [x2, h - pop[2]*h/pop[2] if pop[2] != 0 else h]
+                ]
+                pygame.draw.polygon(sac, species_to_color(sp, ui), points)
+        else:
+            prev_gen = g - 1
+            for sp in alive_species:
+                pop_curr = data[g][sp]
+                # Only draw trapezoid if species existed in previous generation
+                if sp in data[prev_gen]:
+                    pop_prev = data[prev_gen][sp]
+                    points = [
+                        [x1, h - pop_prev[1]*h/pop_prev[2] if pop_prev[2] != 0 else h],
+                        [x1, h - pop_prev[2]*h/pop_prev[2] if pop_prev[2] != 0 else h],
+                        [x2, h - pop_curr[2]*h/pop_curr[2] if pop_curr[2] != 0 else h],
+                        [x2, h - pop_curr[1]*h/pop_curr[2] if pop_curr[2] != 0 else h]
+                    ]
+                    pygame.draw.polygon(sac, species_to_color(sp, ui), points)
+                else:
+                    # species is new this generation, draw from middle
+                    points = [
+                        [x1, h/2],
+                        [x1, h/2],
+                        [x2, h - pop_curr[1]*h/pop_curr[2] if pop_curr[2] != 0 else h],
+                        [x2, h - pop_curr[2]*h/pop_curr[2] if pop_curr[2] != 0 else h]
+                    ]
+                    pygame.draw.polygon(sac, species_to_color(sp, ui), points)
+
+"""def scan_down_trapezoids(data, g, sac, margins, ui) -> None:
     w = sac.get_width()-margins[0]-margins[1]
     h = sac.get_height()
     len_data = len(data)
@@ -77,7 +121,7 @@ def scan_down_trapezoids(data, g, sac, margins, ui) -> None:
             points = [[x1,h/2],[x1,h/2],[x2,h-pop[1]*fac],[x2,h-pop[2]*fac]]
             pygame.draw.polygon(sac, species_to_color(sp, ui), points)
     else:
-        trapezoid_helper(sac, data, g, g - 1, 0, c_count, x1, x2, fac, 0, ui)
+        trapezoid_helper(sac, data, g, g - 1, 0, c_count, x1, x2, fac, 0, ui)"""
    
 def get_range_even_if_none(dicty, key):
     keys = sorted(list(dicty.keys()))
@@ -91,7 +135,7 @@ def get_range_even_if_none(dicty, key):
             val = dicty[keys[n]][1]
         return [0, val, val]
 
-def trapezoid_helper(sac, data, g1, g2, i_start, i_end, x1, x2, fac, level, ui) -> None:
+"""def trapezoid_helper(sac, data, g1, g2, i_start, i_end, x1, x2, fac, level, ui) -> None:
     pop2 = [0, 0, 0]
     h = sac.get_height()
     for sp in data[g1].keys():
@@ -101,28 +145,62 @@ def trapezoid_helper(sac, data, g1, g2, i_start, i_end, x1, x2, fac, level, ui) 
 
         pop2 = get_range_even_if_none(data[g2], sp)
         points = [[x1, h - pop2[1] * fac], [x1, h - pop2[2] * fac], [x2, h - pop1[2] * fac], [x2, h - pop1[1] * fac]]
-        pygame.draw.polygon(sac, species_to_color(sp, ui), points)
-        
-def draw_gene_graph(species_info, ps, gg, sim, ui, font) -> None:  # ps = prominent_species
-    r = ui.genealogy_coor[4]
-    h = gg.get_height()-r*2
-    w = gg.get_width()-r*2
-    gg.fill((0,0,0))
-    if len(sim.creatures) == 0:
-        return
-        
-    for level in range(len(ps)):
-        for i in range(len(ps[level])):
-            s = ps[level][i]
-            x = (i+0.5)/(len(ps[level])) * w + r
-            y = level / (len(ps)-0.8) * h + r
-            species_info[s].coor = (x,y)
-            
-    for level in range(len(ps)):
-        for i in range(len(ps[level])):
-            s = ps[level][i]
-            draw_species_circle(gg, s, species_info[s].coor, r, sim, species_info, font, True, ui)
-        
+        pygame.draw.polygon(sac, species_to_color(sp, ui), points)"""
+
+def draw_sac(data, sac, margins, ui) -> None:
+    sac.fill((0, 0, 0))
+    h = sac.get_height()
+    len_data = len(data)
+    left = margins[0]
+    w = sac.get_width() - margins[0] - margins[1]
+
+    for g in range(len_data):
+        x1 = left + (g / len_data) * w
+        x2 = left + ((g + 1) / len_data) * w
+
+        keys = sorted(list(data[g].keys()))
+        if not keys:
+            continue
+        c_count = data[g][keys[-1]][2]
+        fac = h / c_count
+
+        if g == 0:
+            # First generation: draw from middle
+            for sp in keys:
+                pop = data[g][sp]
+                points = [
+                    [x1, h/2],
+                    [x1, h/2],
+                    [x2, h - pop[1]*fac],
+                    [x2, h - pop[2]*fac]
+                ]
+                pygame.draw.polygon(sac, species_to_color(sp, ui), points)
+        else:
+            prev_gen = g - 1
+            for sp in keys:
+                pop_curr = data[g][sp]
+                pop_prev = get_range_even_if_none(data[prev_gen], sp)
+
+                # Draw gap if needed
+                if pop_curr[1] != pop_prev[2]:
+                    points_gap = [
+                        [x1, h - pop_prev[2]*fac],
+                        [x1, h - pop_prev[2]*fac],
+                        [x2, h - pop_curr[1]*fac],
+                        [x2, h - pop_curr[1]*fac]
+                    ]
+                    pygame.draw.polygon(sac, species_to_color(sp, ui), points_gap)
+
+                # Draw main trapezoid
+                points = [
+                    [x1, h - pop_prev[1]*fac],
+                    [x1, h - pop_prev[2]*fac],
+                    [x2, h - pop_curr[2]*fac],
+                    [x2, h - pop_curr[1]*fac]
+                ]
+                pygame.draw.polygon(sac, species_to_color(sp, ui), points)
+
+    
 def display_all_graphs(screen, sim, ui) -> None:
     blit_graphsand_marks(screen, sim, ui)
     blit_g_gand_marks(screen, sim, ui)
@@ -163,6 +241,28 @@ def blit_graphsand_marks(screen, sim, ui):
             outline = Color.WHITE if sp == top_species else None
             align_text(screen, f"{name}: {pop[0]}", line_x + 10, species_y, color, ui.small_font, 0.0, [Color.BLACK, outline])
         
+def draw_gene_graph(species_info, ps, gg, sim, ui, font) -> None:  # ps = prominent_species
+    r = ui.genealogy_coor[4]
+    h = gg.get_height()-r*2
+    w = gg.get_width()-r*2
+    gg.fill((0,0,0))
+    if len(sim.creatures) == 0:
+        return
+        
+    # assign coordinates for prominent species
+    for level in range(len(ps)):
+        for i in range(len(ps[level])):
+            s = ps[level][i]
+            x = (i+0.5)/(len(ps[level])) * w + r
+            y = level / (len(ps)-0.8) * h + r
+            species_info[s].coor = (x,y)
+            
+    # draw species circles
+    for level in range(len(ps)):
+        for i in range(len(ps[level])):
+            s = ps[level][i]
+            draw_species_circle(gg, s, species_info[s].coor, r, sim, species_info, font, True, ui)
+
 
 def blit_g_gand_marks(screen, sim, ui):
     screen.blit(ui.gene_graph, ui.genealogy_coor[0:2])
@@ -193,7 +293,6 @@ def blit_g_gand_marks(screen, sim, ui):
             for c in range(circle_count):
                 pygame.draw.circle(screen, Color.WHITE, ui.storage_coor, r+3+6*c, 3)
             
-
 def get_top_species(sim, g):
     data = sim.species_pops[g] 
     return max(data, key=data.get)

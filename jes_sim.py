@@ -134,7 +134,7 @@ class Sim:
         friction = self.calming_friction_coef if calming_run else self.typical_friction_coef
         ceiling_y = self.y_clips[0]
         floor_y = self.y_clips[1]
-        
+
         for f in range(frame_count):
             current_frame = start_current_frame+f
             beat = 0
@@ -142,6 +142,7 @@ class Sim:
                 beat = self.frame_to_beat(current_frame)
                 node_coor[:,:,:,3] += self.gravity_acceleration_coef
                 # decrease y-velo (3rd node coor) by G
+
             apply_muscles(node_coor, muscles[:, :, :, beat, :], self.muscle_coef)
             node_coor[:,:,:,2:4] *= friction
             node_coor[:,:,:,0:2] += node_coor[:,:,:,2:4]
@@ -185,9 +186,24 @@ class Sim:
         generation_start_time = time.time() #calculates how long each generation takes to run
         
         gen = len(self.creatures) - 1
-        creature_state = self.simulate_import(gen, 0, self.creature_count, True)
-        node_coor, muscles, _ = self.simulate_run(creature_state, self.trial_time, False)
-        final_scores = node_coor[:,:,:,0].mean(axis=(1, 2)) # find each creature's average X-coordinate
+
+        # Determine which creatures need simulation
+        creature_indices_to_simulate = [i for i, c in enumerate(self.creatures[gen]) if not c.has_been_simulated]
+
+        if creature_indices_to_simulate:
+            # Run simulation only for creatures that haven't been simulated
+            creature_state = self.simulate_import(gen, 0, self.creature_count, True)
+            node_coor, muscles, _ = self.simulate_run(creature_state, self.trial_time, False)
+            
+            # Mark simulated creatures
+            for i in creature_indices_to_simulate:
+                self.creatures[gen][i].has_been_simulated = True
+            
+            final_scores = node_coor[:, :, :, 0].mean(axis=(1, 2))
+        else:
+            # All creatures already simulated; reuse fitness scores
+            final_scores = np.array([c.fitness for c in self.creatures[gen]])
+
         
         # Tallying up all the data
         curr_rankings = np.flip(np.argsort(final_scores), axis=0)

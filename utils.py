@@ -2,6 +2,7 @@ import json
 from hashlib import sha256
 import numpy as np
 import math
+import time
 
 def array_lerp(arr_a, arr_b, x):
     return arr_a+(arr_b - arr_a)*x
@@ -67,18 +68,33 @@ def brighten(color, b):
         return lerp(color[0],255,fac),lerp(color[1],255,fac),lerp(color[2],255,fac)
     else:
         return color[0]*b, color[1]*b, color[2]*b
-    
+
 def species_to_color(s, ui):
-    salted = str(s)+ui.salt
-    if s in ui.sc_colors:
-        salted = ui.sc_colors[s]+ui.salt
-    _hex = sha256(salted.encode('utf-8')).hexdigest()
-    hue = (int(_hex, 16)%10000)/10000
-    brightness = (math.floor(int(_hex, 16)//10000)%100)/100
+    # Convert species to a simple integer (deterministic)
+    if isinstance(s, int):
+        val = s
+    else:
+        val = sum(ord(c) for c in str(s) + ui.salt)
+
+    # Simple fast pseudo-randomness using bit shifts
+    rand = ((val << 5) ^ (val >> 3)) & 0xFF
+
+    # Generate hue [0,1) with slight randomness
+    hue = ((val & 0xFF) + rand) % 256 / 256.0
+
+    # Generate brighter brightness [0.7,1.0) with randomness
+    brightness = 0.7 + (((val >> 8) + rand) & 0x3F) / 100.0
+    if brightness > 1.0:
+        brightness = 1.0
+
+    # Convert to RGB
     color = hue_to_rgb(hue)
-    new_color = brighten(color, 0.85+0.6*brightness)
+
+    # Brighten
+    new_color = brighten(color, brightness)
 
     return new_color
+
     
 def bound(x):
     return min(max(x,0),1)
@@ -96,52 +112,63 @@ def get_distance_array(a, b):
     x_dist = a[:,:,:,0]-b[:,:,:,0]
     y_dist = a[:,:,:,1]-b[:,:,:,1]
     return np.sqrt(np.square(x_dist)+np.square(y_dist))
-    
-def apply_muscles(n, m, muscle_coef) -> None :
-    x_neighbor_dists = get_distance_array(n[:, :-1, :], n[:, 1:, :])
-    y_neighbor_dists = get_distance_array(n[:, :, :-1], n[:, :, 1:])
-    pos_diag_neighbor_dists = get_distance_array(n[:, :-1, :-1], n[:, 1:, 1:])
-    neg_diag_neighbor_dists = get_distance_array(n[:, :-1, 1:], n[:, 1:, :-1])
-    
-    m_as = [None] * 6
-    segments = [[0,0,1,0],[0,1,1,1],[0,0,0,1],[1,0,1,1],[0,0,1,1],[0,1,1,0]]
 
-    
-    m_as[0] = get_muscle_attraction(x_neighbor_dists[:, :, :-1], m[:, :, :, 0], muscle_coef)
-    m_as[1] = get_muscle_attraction(x_neighbor_dists[:, :, 1:], m[:, :, :, 0], muscle_coef)
-    m_as[2] = get_muscle_attraction(y_neighbor_dists[:, :-1, :], m[:, :, :, 1], muscle_coef)
-    m_as[3] = get_muscle_attraction(y_neighbor_dists[:, 1:, :], m[:, :, :, 1], muscle_coef)
-    m_as[4] = get_muscle_attraction(pos_diag_neighbor_dists, m[:, :, :, 3], muscle_coef)
-    m_as[5] = get_muscle_attraction(neg_diag_neighbor_dists, m[:, :, :, 3], muscle_coef)
-    
-    # The array n is a 100 x 5 x 5 x 4 dimensional array,
-    # and it encodes the position and velocity data for all 100 creatures on a frame.
-    
-    # Dimension 1: 100 creatures (creature ID)
-    # Dimension 2: 5 nodes across the x-dimensional
-    # Dimension 3: 5 nodes across the y-dimensional
-    # Dimension 4: Which coordinate to do you want (x, y, vx, vy)
-    _, cw, ch, __ = n.shape
-    cw -= 1
-    ch -= 1
-    
-    for dire in range(6):
-        s = segments[dire]
-        sli1 = n[:,s[0]:s[0]+cw,s[1]:s[1]+cw]
-        sli2 = n[:,s[2]:s[2]+ch,s[3]:s[3]+ch]
-        
-        delta_x = sli1[:,:,:,0]-sli2[:,:,:,0]
-        delta_y = sli1[:,:,:,1]-sli2[:,:,:,1]
-        
-        delta_magnitude = np.sqrt(np.square(delta_x)+np.square(delta_y))
-        delta_nx = delta_x/delta_magnitude
-        delta_ny = delta_y/delta_magnitude
-        
-        n[:,s[0]:s[0]+cw,s[1]:s[1]+cw,2] += delta_nx*m_as[dire]
-        n[:,s[0]:s[0]+cw,s[1]:s[1]+cw,3] += delta_ny*m_as[dire]
-        n[:,s[2]:s[2]+ch,s[3]:s[3]+ch,2] -= delta_nx*m_as[dire]
-        n[:,s[2]:s[2]+ch,s[3]:s[3]+ch,3] -= delta_ny*m_as[dire]
-        
+def apply_muscles(n, m, muscle_coef):
+    B, H, W, _ = n.shape
+    Hm, Wm = m.shape[1:3]
+
+    # --- Compute neighbor distances ---
+    x_dist = np.hypot(n[:, 1:, :, 0] - n[:, :-1, :, 0],
+                      n[:, 1:, :, 1] - n[:, :-1, :, 1])
+    y_dist = np.hypot(n[:, :, 1:, 0] - n[:, :, :-1, 0],
+                      n[:, :, 1:, 1] - n[:, :, :-1, 1])
+    pos_diag_dist = np.hypot(n[:, 1:, 1:, 0] - n[:, :-1, :-1, 0],
+                             n[:, 1:, 1:, 1] - n[:, :-1, :-1, 1])
+    neg_diag_dist = np.hypot(n[:, 1:, :-1, 0] - n[:, :-1, 1:, 0],
+                             n[:, 1:, :-1, 1] - n[:, :-1, 1:, 1])
+
+    # --- Slice neighbor distances to match muscle grid ---
+    x_dist0 = x_dist[:, :Hm, :Wm]
+    x_dist1 = x_dist[:, :Hm, 1:Wm+1]
+    y_dist0 = y_dist[:, :Hm, :Wm]
+    y_dist1 = y_dist[:, 1:Hm+1, :Wm]
+    pos_diag_dist = pos_diag_dist[:, :Hm, :Wm]
+    neg_diag_dist = neg_diag_dist[:, :Hm, :Wm]
+
+    # --- Muscle adjustments ---
+    m_as = [
+        (m[:, :, :, 0] - x_dist0) * muscle_coef,
+        (m[:, :, :, 0] - x_dist1) * muscle_coef,
+        (m[:, :, :, 1] - y_dist0) * muscle_coef,
+        (m[:, :, :, 1] - y_dist1) * muscle_coef,
+        (m[:, :, :, 3] - pos_diag_dist) * muscle_coef,
+        (m[:, :, :, 3] - neg_diag_dist) * muscle_coef,
+    ]
+
+    segments = [
+        [0, 0, 1, 0],
+        [0, 1, 1, 1],
+        [0, 0, 0, 1],
+        [1, 0, 1, 1],
+        [0, 0, 1, 1],
+        [0, 1, 1, 0]
+    ]
+
+    # --- Apply muscle updates ---
+    for dire, (h1, w1, h2, w2) in enumerate(segments):
+        h_len = H-1
+        w_len = W-1
+        sli1 = n[:, h1:h1+h_len, w1:w1+w_len, :2]
+        sli2 = n[:, h2:h2+h_len, w2:w2+w_len, :2]
+
+        delta = sli1 - sli2
+        delta_norm = delta / (np.linalg.norm(delta, axis=-1, keepdims=True) + 1e-12)
+        update = delta_norm * m_as[dire][..., np.newaxis]
+
+        n[:, h1:h1+h_len, w1:w1+w_len, 2:4] += update
+        n[:, h2:h2+h_len, w2:w2+w_len, 2:4] -= update
+
+
 def get_muscle_attraction(dists, m, muscle_coef):
     return (m-dists) * muscle_coef
     
